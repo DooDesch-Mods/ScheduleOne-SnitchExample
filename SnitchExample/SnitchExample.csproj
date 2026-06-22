@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SnitchExample - a minimal mod demonstrating the Snitch profiler's modder API. It uses the recommended
+    "copy-in source" integration: it compiles the single Snitch.cs shim directly into itself (linked below), so
+    there is NO extra DLL to ship and it is a zero-overhead no-op when Snitch is not installed. Registers a
+    counter + a state provider and times a section. Doubles as the public example repo for Phase 4.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SnitchExample</RootNamespace>
+    <AssemblyName>SnitchExample</AssemblyName>
+    <Version>1.0.0</Version>
+    <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
+    <WorkspaceLibPath Condition="'$(WorkspaceLibPath)' == ''">$(MSBuildThisFileDirectory)../Workspace/lib</WorkspaceLibPath>
+    <MelonLoaderPath>$(WorkspaceLibPath)/il2cpp/melonloader</MelonLoaderPath>
+    <ModsDirectory Condition="'$(ModsDirectory)' == ''">D:\Launcher\SteamLibrary\steamapps\common\Schedule I\Mods</ModsDirectory>
+  </PropertyGroup>
+
+  <!-- The copy-in shim: compile Snitch.Api's single source file directly into this mod (no extra DLL). -->
+  <ItemGroup>
+    <Compile Include="../Snitch.Api/Snitch.cs" Link="Snitch.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonLoaderPath)/MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Condition="Exists('$(ModsDirectory)')"
+          Command="cmd /c if exist &quot;$(ModsDirectory)&quot; copy /Y &quot;$(TargetPath)&quot; &quot;$(ModsDirectory)&quot;"
+          ContinueOnError="true" />
+  </Target>
+
+</Project>
