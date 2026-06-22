@@ -7,6 +7,12 @@ not installed**, so you can ship the integration with no hard dependency.
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
 
+## The basics are free
+
+When Snitch is installed and sampling, it **auto-times every loaded mod's per-frame methods** (`OnUpdate`,
+`OnFixedUpdate`, `OnLateUpdate`, `OnGUI`) and shows them as `<YourMod>.OnUpdate` - with **no code on your
+side**. Your mod already appears in the frame budget. Add the API below only to go further.
+
 ## Two ways to add the API
 
 - **Copy-in source (recommended):** drop [`Snitch.Api/Snitch.cs`](Snitch.Api/Snitch.cs) into your mod
@@ -16,32 +22,49 @@ not installed**, so you can ship the integration with no hard dependency.
 Both bind to the running Snitch host purely by reflection, so they share no type with it and work regardless
 of load order.
 
-## Use it
+## Register counters + state with zero wiring
 
-See [`SnitchExample/Core.cs`](SnitchExample/Core.cs) for the full, working example:
+Name a class `SnitchProbe` with a static `Register()` - Snitch **discovers and calls it automatically** when
+sampling starts, so nothing goes into your `OnInitializeMelon`. See
+[`SnitchExample/Core.cs`](SnitchExample/Core.cs):
 
 ```csharp
-using Snitch.Api;                  // StateSnapshot
-using Prof = Snitch.Api.Snitch;    // alias avoids the Snitch namespace/type clash
+using Snitch.Api;   // Profiler, StateSnapshot
 
-// 1) Time a section (no heap alloc; no-op when Snitch is absent or not sampling)
-using (Prof.Sample("MyMod.Pathfinding")) { ...expensive work... }
+internal static class SnitchProbe
+{
+    public static void Register()
+    {
+        Profiler.RegisterCounter("MyMod.QueueLength", () => MyMod.Queue.Count, "items");
+        Profiler.RegisterStateProvider("MyMod.Jobs", () =>
+            new StateSnapshot { Title = "Jobs" }.Add("running", MyMod.Running).Add("queued", MyMod.Queued));
+    }
+}
+```
+
+## The full API
+
+```csharp
+using Snitch.Api;   // Profiler, StateSnapshot, Scope
+
+// 1) Hand-time a sub-section (finer than the automatic per-mod timing). No heap alloc; no-op when not sampling.
+using (Profiler.Sample("MyMod.Pathfinding")) { ...expensive work... }
 
 // gate hot loops for the absolutely-free path:
-if (Prof.Enabled) using (Prof.Sample("MyMod.Tick")) { ... }
+if (Profiler.Enabled) using (Profiler.Sample("MyMod.Tick")) { ... }
 
 // 2) A numeric gauge (polled a few Hz by the host)
-Prof.RegisterCounter("MyMod.QueueLength", () => _queue.Count, "items");
+Profiler.RegisterCounter("MyMod.QueueLength", () => _queue.Count, "items");
 
 // 3) An entity/state distribution (shown as a bar panel in the HUD + web dashboard)
-Prof.RegisterStateProvider("MyMod.Jobs", () =>
+Profiler.RegisterStateProvider("MyMod.Jobs", () =>
     new StateSnapshot { Title = "Jobs" }.Add("running", _running).Add("queued", _queued));
 
 // 4) An ablation lever so 'snitch ablate mymod' measures your subsystem's causal frame cost
-Prof.RegisterAblationLever("mymod.particles", apply: () => DisableParticles(), restore: () => EnableParticles());
+Profiler.RegisterAblationLever("mymod.particles", apply: () => DisableParticles(), restore: () => EnableParticles());
 
 // 5) Mark a one-off spike
-Prof.Mark("MyMod.LevelLoaded");
+Profiler.Mark("MyMod.LevelLoaded");
 ```
 
 **Rules:** call from the Unity main thread. Prefix your labels with `MyMod.` so they roll up per mod in the

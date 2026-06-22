@@ -11,19 +11,25 @@ namespace Snitch.Api
     ///
     /// <code>
     ///   using Snitch.Api;
-    ///   using (Snitch.Sample("MyMod.Pathfinding")) { ...expensive work... }   // times a section
-    ///   Snitch.RegisterCounter("MyMod.QueueLen", () =&gt; _queue.Count, "items");
-    ///   Snitch.RegisterStateProvider("MyMod.Jobs", () =&gt; new StateSnapshot { Title = "Jobs" }
+    ///   using (Profiler.Sample("MyMod.Pathfinding")) { ...expensive work... }   // times a section
+    ///   Profiler.RegisterCounter("MyMod.QueueLen", () =&gt; _queue.Count, "items");
+    ///   Profiler.RegisterStateProvider("MyMod.Jobs", () =&gt; new StateSnapshot { Title = "Jobs" }
     ///       .Add("running", _running).Add("queued", _queued));
     /// </code>
+    ///
+    /// Tip: a class named <c>SnitchProbe</c> with a static <c>Register()</c> is auto-discovered and called on
+    /// bind (see <see cref="AutoRegister"/>), so your mod's Core doesn't need to wire anything. Snitch also
+    /// auto-times every mod's OnUpdate etc., so basic per-mod frame cost needs no code at all.
     ///
     /// All calls MUST be made from the Unity main thread. Counter/state delegates are invoked by the host on
     /// the main thread, so they may safely touch game objects.
     /// </summary>
-    public static class Snitch
+    public static class Profiler
     {
         // bound bridge delegates (null until the host is found)
         private static bool _bound;
+        private static bool _autoDone;
+        private static int _probeAttempts;
         private static readonly List<Action> _pending = new List<Action>();
         private static Func<bool> _isEnabled;
         private static Func<string, int> _beginScope;
@@ -38,13 +44,13 @@ namespace Snitch.Api
         private static Action<string, Action, Action> _registerLever;
 
         /// <summary>True only when the Snitch host is installed AND sampling is currently armed. Gate hot loops
-        /// on this for the absolutely-free path: <c>if (Snitch.Enabled) using (Snitch.Sample("X")) { ... }</c>.</summary>
+        /// on this for the absolutely-free path: <c>if (Profiler.Enabled) using (Profiler.Sample("X")) { ... }</c>.</summary>
         public static bool Enabled
         {
             get { EnsureBound(); return _isEnabled != null && _isEnabled(); }
         }
 
-        /// <summary>Time a section. <c>using (Snitch.Sample("MyMod.Foo")) { ... }</c>. No heap allocation; a
+        /// <summary>Time a section. <c>using (Profiler.Sample("MyMod.Foo")) { ... }</c>. No heap allocation; a
         /// no-op (default scope) when the host is absent or sampling is off.</summary>
         public static Scope Sample(string label)
         {
@@ -104,6 +110,43 @@ namespace Snitch.Api
             else _pending.Add(() => _registerLever?.Invoke(name, apply, restore));
         }
 
+        /// <summary>Discover a convention type named <c>SnitchProbe</c> with a static <c>Register()</c> in THIS
+        /// mod's own assembly and invoke it once - so a mod never has to wire a Register() call into its Core.
+        /// Drive it from a <c>[ModuleInitializer]</c> in your probe file. No-op + load-order-proof: discovery is
+        /// deferred until the host binds, and is a permanent no-op if Snitch is not installed.</summary>
+        public static void AutoRegister()
+        {
+            EnsureBound();
+            if (_bound) RunAutoRegister();   // else: the bind flush will run it (load-order-proof, both directions)
+        }
+
+        private static void RunAutoRegister()
+        {
+            if (_autoDone) return;
+            _autoDone = true;   // latch before invoking so a throw can't loop
+            try
+            {
+                Assembly self = typeof(Profiler).Assembly;   // only this mod's assembly - single, fast, no AppDomain scan
+                Type probe = self.GetType("SnitchProbe", false) ?? FindByLeafName(self, "SnitchProbe");
+                MethodInfo reg = probe?.GetMethod("Register",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, Type.EmptyTypes, null);
+                reg?.Invoke(null, null);
+            }
+            catch { /* a mod's probe threw -> stays a no-op, never crashes the mod */ }
+        }
+
+        private static Type FindByLeafName(Assembly asm, string leaf)
+        {
+            Type[] types;
+            try { types = asm.GetTypes(); }
+            catch (ReflectionTypeLoadException e) { types = e.Types; }
+            catch { return null; }
+            if (types == null) return null;
+            foreach (Type t in types)
+                if (t != null && t.IsClass && t.IsAbstract && t.IsSealed && t.Name == leaf) return t;   // static class
+            return null;
+        }
+
         // ----- reflection handshake (runs until it binds, then latches) -----
 
         private static void EnsureBound()
@@ -111,7 +154,9 @@ namespace Snitch.Api
             if (_bound) return;   // bound once, never probe again (fast path)
             try
             {
-                Type t = FindBridge();
+                // Cheap assembly-qualified lookup every call; the expensive AppDomain scan only occasionally,
+                // so a mod that calls the API every frame while Snitch is absent doesn't scan 100+ assemblies/frame.
+                Type t = FindBridge((_probeAttempts++ % 30) == 0);
                 if (t == null) return;   // host not present yet - cheap re-probe next call (load-order proof)
                 object abi = t.GetField("AbiVersion", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
                 if (abi is int v && v < 1) return;
@@ -144,10 +189,10 @@ namespace Snitch.Api
             return v as T;   // works because Func<>/Action<> are shared BCL types in both assemblies
         }
 
-        private static Type FindBridge()
+        private static Type FindBridge(bool scan)
         {
             Type t = Type.GetType("Snitch.Bridge.SnitchBridge, Snitch", false);
-            if (t != null) return t;
+            if (t != null || !scan) return t;
             foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try { t = asm.GetType("Snitch.Bridge.SnitchBridge", false); if (t != null) return t; }
@@ -159,12 +204,12 @@ namespace Snitch.Api
         internal static void InvokeEndScope(int token) { _endScope?.Invoke(token); }
     }
 
-    /// <summary>Zero-heap-alloc timing scope returned by <see cref="Snitch.Sample"/>.</summary>
+    /// <summary>Zero-heap-alloc timing scope returned by <see cref="Profiler.Sample"/>.</summary>
     public readonly struct Scope : IDisposable
     {
         private readonly int _token;
         internal Scope(int token) { _token = token; }
-        public void Dispose() { if (_token != 0) Snitch.InvokeEndScope(_token); }
+        public void Dispose() { if (_token != 0) Profiler.InvokeEndScope(_token); }
     }
 
     /// <summary>A small ordered name-&gt;count distribution returned by a state provider.</summary>
