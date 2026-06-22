@@ -4,7 +4,7 @@
     SnitchExample - a minimal mod demonstrating the Snitch profiler's modder API. It uses the recommended
     "copy-in source" integration: it compiles the single Snitch.cs shim directly into itself (linked below), so
     there is NO extra DLL to ship and it is a zero-overhead no-op when Snitch is not installed. Registers a
-    counter + a state provider and times a section. Doubles as the public example repo for Phase 4.
+    counter + a state provider and times a section. Doubles as the public example repo.
   -->
 
   <PropertyGroup>
