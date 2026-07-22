@@ -5,7 +5,7 @@ performance profiler for Schedule I. Snitch lets your mod report its own perform
 counters, entity-state distributions, and ablation levers - and it is a **zero-overhead no-op when Snitch is
 not installed**, so you can ship the integration with no hard dependency.
 
-> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/snitchexample](https://support.doodesch.de/snitchexample).
 
 ## The basics are free
 
