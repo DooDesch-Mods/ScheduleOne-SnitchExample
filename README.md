@@ -7,6 +7,8 @@ not installed**, so you can ship the integration with no hard dependency.
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/snitchexample](https://support.doodesch.de/snitchexample).
 
+📖 **Documentation:** [docs.doodesch.de/mods/snitchexample/](https://docs.doodesch.de/mods/snitchexample/)
+
 ## The basics are free
 
 When Snitch is installed and sampling, it **auto-times every loaded mod's per-frame methods** (`OnUpdate`,
